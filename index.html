@@ -828,7 +828,20 @@ print("Olá, LuaForge!")'></textarea>
         <!-- PAINEL ADMIN -->
         <div id="page-admin" style="display: none;">
             <h2 style="margin-bottom: 20px;">👑 Painel de Administração</h2>
+            
+            <!-- NOVO SISTEMA DE GERENCIAR CAPÍTULOS -->
+            <div style="background: var(--graphite); border-radius: 12px; padding: 20px; margin-bottom: 30px; border: 1px solid #2A2A2A;">
+                <h3 style="margin-bottom: 15px;">📚 Gerenciar Capítulos/Cursos Ao Vivo</h3>
+                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px;">Adicione novos capítulos que aparecerão imediatamente para todos os alunos.</p>
+                
+                <div id="capitulosAdminList" style="margin-bottom: 20px;"></div>
+                
+                <button class="btn btn-primary" onclick="abrirModalCapitulo()" style="margin-bottom: 10px;">+ Adicionar Novo Capítulo</button>
+            </div>
+            
+            <!-- TABELA DE USUÁRIOS -->
             <div class="users-table" style="background: var(--graphite); border-radius: 12px; overflow: hidden;">
+                <h3 style="padding: 20px 20px 0 20px;">👥 Gerenciar Usuários</h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead style="background: var(--graphite-light);">
                         <tr><th style="padding: 12px; text-align: left;">Usuário</th><th style="padding: 12px; text-align: left;">Email</th><th style="padding: 12px; text-align: left;">Status</th><th style="padding: 12px; text-align: left;">Premium</th><th style="padding: 12px; text-align: left;">Ações</th></tr>
@@ -851,6 +864,18 @@ print("Olá, LuaForge!")'></textarea>
     </div>
 </div>
 
+<!-- MODAL NOVO CAPÍTULO -->
+<div class="modal" id="capituloModal">
+    <div class="modal-content">
+        <h2 id="capituloModalTitle">Adicionar Novo Capítulo</h2>
+        <input type="text" id="capituloNomeInput" placeholder="Nome do capítulo (ex: Capítulo 6 — Variáveis)" style="width: 100%; padding: 12px; background: var(--dark); border: 1px solid #2A2A2A; border-radius: 8px; color: white; margin-bottom: 12px;">
+        <input type="text" id="capituloDescInput" placeholder="Descrição do capítulo" style="width: 100%; padding: 12px; background: var(--dark); border: 1px solid #2A2A2A; border-radius: 8px; color: white; margin-bottom: 12px;">
+        <textarea id="capituloConteudoInput" rows="10" placeholder="Conteúdo HTML da aula (use &lt;div class='aula-container'&gt;...)" style="width: 100%; padding: 12px; background: var(--dark); border: 1px solid #2A2A2A; border-radius: 8px; color: white; margin-bottom: 12px;"></textarea>
+        <button class="btn btn-primary" onclick="salvarCapitulo()" style="width: 100%; margin-bottom: 10px;">Salvar Capítulo</button>
+        <button class="btn btn-outline" onclick="fecharModalCapitulo()" style="width: 100%;">Cancelar</button>
+    </div>
+</div>
+
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
@@ -859,6 +884,7 @@ print("Olá, LuaForge!")'></textarea>
     
     const STORAGE_KEY = 'luforge_users_secure';
     const SESSION_KEY = 'luforge_session';
+    const CAPITULOS_KEY = 'luforge_capitulos_custom';
 
     function hashPassword(password, salt = null) {
         const saltValue = salt || Math.random().toString(36).substring(2, 10);
@@ -896,6 +922,17 @@ print("Olá, LuaForge!")'></textarea>
 
     function saveUsers(users) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+    }
+
+    // ========== SISTEMA DE CAPÍTULOS CUSTOM ==========
+    function loadCapitulosCustom() {
+        const capitulos = localStorage.getItem(CAPITULOS_KEY);
+        if (capitulos) return JSON.parse(capitulos);
+        return [];
+    }
+
+    function saveCapitulosCustom(capitulos) {
+        localStorage.setItem(CAPITULOS_KEY, JSON.stringify(capitulos));
     }
 
     let currentUser = null;
@@ -975,7 +1012,7 @@ print("Olá, LuaForge!")'></textarea>
             id: newUserId, username, email,
             passwordHash: passwordHash.hash, passwordSalt: passwordHash.salt,
             isAdmin: false, isPremium: false, isBanned: false,
-            progress: { modulo1: false, modulo2: false, modulo3: false, modulo4: false, modulo5: false },
+            progress: {},
             scripts: [], createdAt: new Date().toISOString()
         };
 
@@ -1014,7 +1051,10 @@ print("Olá, LuaForge!")'></textarea>
         
         carregarModulos();
         atualizarProgresso();
-        if (ehAdmin) carregarAdminUsers();
+        if (ehAdmin) {
+            carregarAdminUsers();
+            carregarCapitulosAdmin();
+        }
     }
 
     function logout() {
@@ -1288,8 +1328,21 @@ print("Olá, LuaForge!")'></textarea>
         const container = document.getElementById('modulosList');
         if (!container) return;
         
+        // Carrega módulos padrão + custom
+        const customCapitulos = loadCapitulosCustom();
+        let todosModulos = [...modulos];
+        
+        customCapitulos.forEach(cap => {
+            todosModulos.push({
+                id: cap.id,
+                nome: cap.nome,
+                descricao: cap.descricao,
+                custom: true
+            });
+        });
+        
         container.innerHTML = '';
-        modulos.forEach(modulo => {
+        todosModulos.forEach(modulo => {
             const isCompleted = currentUser.progress && currentUser.progress[`modulo${modulo.id}`];
             const div = document.createElement('div');
             div.className = `modulo-card ${isCompleted ? 'completed' : ''}`;
@@ -1297,8 +1350,8 @@ print("Olá, LuaForge!")'></textarea>
             div.innerHTML = `
                 <div class="modulo-numero">${isCompleted ? '✓' : modulo.id}</div>
                 <div class="modulo-info">
-                    <div class="modulo-nome">${modulo.nome}</div>
-                    <div class="modulo-desc">${modulo.descricao}</div>
+                    <div class="modulo-nome">${escapeHtml(modulo.nome)} ${modulo.custom ? '<span style="color:#6C5CE7; font-size:11px;">(NOVO)</span>' : ''}</div>
+                    <div class="modulo-desc">${escapeHtml(modulo.descricao)}</div>
                 </div>
                 <div class="modulo-status ${isCompleted ? 'completed' : ''}">${isCompleted ? 'Concluído' : 'Pendente'}</div>
             `;
@@ -1307,13 +1360,24 @@ print("Olá, LuaForge!")'></textarea>
     }
 
     function abrirAula(moduloId) {
-        const content = aulasContent[moduloId];
+        // Verifica se é um capítulo custom
+        const customCapitulos = loadCapitulosCustom();
+        const customCap = customCapitulos.find(c => c.id === moduloId);
+        
+        let content;
+        if (customCap) {
+            content = customCap.conteudo;
+        } else {
+            content = aulasContent[moduloId];
+        }
+        
         if (content) {
+            const totalModulos = modulos.length + customCapitulos.length;
             document.getElementById('aulaContent').innerHTML = content + `
                 <div class="aula-nav">
                     ${moduloId > 1 ? `<button class="btn btn-outline" onclick="abrirAula(${moduloId - 1})">← Anterior</button>` : '<div></div>'}
                     <button class="btn btn-primary" onclick="marcarModuloConcluido(${moduloId})">✓ Marcar como Concluído</button>
-                    ${moduloId < 5 ? `<button class="btn btn-outline" onclick="abrirAula(${moduloId + 1})">Próximo →</button>` : '<div></div>'}
+                    ${moduloId < totalModulos ? `<button class="btn btn-outline" onclick="abrirAula(${moduloId + 1})">Próximo →</button>` : '<div></div>'}
                 </div>
             `;
             navigateTo('aula');
@@ -1341,15 +1405,17 @@ print("Olá, LuaForge!")'></textarea>
 
     function atualizarProgresso() {
         if (!currentUser.progress) currentUser.progress = {};
+        const customCapitulos = loadCapitulosCustom();
+        const totalModulos = modulos.length + customCapitulos.length;
         let completed = 0;
-        for (let i = 1; i <= 5; i++) {
+        for (let i = 1; i <= totalModulos; i++) {
             if (currentUser.progress[`modulo${i}`]) completed++;
         }
-        const percent = (completed / 5) * 100;
+        const percent = (completed / totalModulos) * 100;
         const progressBar = document.getElementById('progressBarFill');
         const progressText = document.getElementById('progressText');
         if (progressBar) progressBar.style.width = percent + '%';
-        if (progressText) progressText.textContent = `${completed} de 5 módulos concluídos`;
+        if (progressText) progressText.textContent = `${completed} de ${totalModulos} módulos concluídos`;
     }
 
     // ========== EDITOR LUA ==========
@@ -1521,8 +1587,8 @@ end)`;
                 <td style="padding: 12px;">${user.isPremium ? '<span style="color:#FFD700;">Premium</span>' : 'Free'}</td>
                 <td style="padding: 12px;">
                     ${!user.isAdmin ? `
-                        <button class="btn-icon" onclick="togglePremium('${id}')" style="background:none; border:none; cursor:pointer; margin-right:8px;">⭐</button>
-                        <button class="btn-icon" onclick="toggleBan('${id}')" style="background:none; border:none; cursor:pointer;">🚫</button>
+                        <button class="btn-icon" onclick="togglePremium('${id}')" style="background:none; border:none; cursor:pointer; margin-right:8px; font-size: 18px;">⭐</button>
+                        <button class="btn-icon" onclick="toggleBan('${id}')" style="background:none; border:none; cursor:pointer; font-size: 18px;">${user.isBanned ? '✅' : '🚫'}</button>
                     ` : '—'}
                 </td>
             `;
@@ -1549,6 +1615,122 @@ end)`;
         }
     }
 
+    // ========== GERENCIAR CAPÍTULOS (ADMIN) ==========
+    let capituloEditandoId = null;
+
+    function carregarCapitulosAdmin() {
+        const container = document.getElementById('capitulosAdminList');
+        if (!container) return;
+        
+        const customCapitulos = loadCapitulosCustom();
+        
+        if (customCapitulos.length === 0) {
+            container.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">Nenhum capítulo customizado ainda. Clique em "Adicionar Novo Capítulo" para começar.</p>';
+            return;
+        }
+        
+        container.innerHTML = '';
+        customCapitulos.forEach(cap => {
+            const div = document.createElement('div');
+            div.style.background = 'var(--graphite-light)';
+            div.style.borderRadius = '10px';
+            div.style.padding = '15px';
+            div.style.marginBottom = '10px';
+            div.style.display = 'flex';
+            div.style.justifyContent = 'space-between';
+            div.style.alignItems = 'center';
+            div.innerHTML = `
+                <div>
+                    <strong>${escapeHtml(cap.nome)}</strong>
+                    <br><span style="font-size: 12px; color: #666;">${escapeHtml(cap.descricao)}</span>
+                </div>
+                <div>
+                    <button class="btn btn-outline" style="padding: 6px 12px; margin-right: 8px;" onclick="editarCapitulo(${cap.id})">Editar</button>
+                    <button class="btn btn-outline" style="padding: 6px 12px; border-color: #FF4757; color: #FF4757;" onclick="excluirCapitulo(${cap.id})">Excluir</button>
+                </div>
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    function abrirModalCapitulo() {
+        capituloEditandoId = null;
+        document.getElementById('capituloModalTitle').textContent = 'Adicionar Novo Capítulo';
+        document.getElementById('capituloNomeInput').value = '';
+        document.getElementById('capituloDescInput').value = '';
+        document.getElementById('capituloConteudoInput').value = '';
+        document.getElementById('capituloModal').classList.add('active');
+    }
+
+    function fecharModalCapitulo() {
+        document.getElementById('capituloModal').classList.remove('active');
+    }
+
+    function editarCapitulo(capId) {
+        const customCapitulos = loadCapitulosCustom();
+        const cap = customCapitulos.find(c => c.id === capId);
+        if (!cap) return;
+        
+        capituloEditandoId = capId;
+        document.getElementById('capituloModalTitle').textContent = 'Editar Capítulo';
+        document.getElementById('capituloNomeInput').value = cap.nome;
+        document.getElementById('capituloDescInput').value = cap.descricao;
+        document.getElementById('capituloConteudoInput').value = cap.conteudo;
+        document.getElementById('capituloModal').classList.add('active');
+    }
+
+    function salvarCapitulo() {
+        const nome = document.getElementById('capituloNomeInput').value.trim();
+        const descricao = document.getElementById('capituloDescInput').value.trim();
+        const conteudo = document.getElementById('capituloConteudoInput').value.trim();
+        
+        if (!nome) { mostrarToast('Digite o nome do capítulo', 'error'); return; }
+        if (!descricao) { mostrarToast('Digite a descrição', 'error'); return; }
+        if (!conteudo) { mostrarToast('Digite o conteúdo HTML da aula', 'error'); return; }
+        
+        const customCapitulos = loadCapitulosCustom();
+        
+        if (capituloEditandoId) {
+            // Editando
+            const index = customCapitulos.findIndex(c => c.id === capituloEditandoId);
+            if (index >= 0) {
+                customCapitulos[index].nome = nome;
+                customCapitulos[index].descricao = descricao;
+                customCapitulos[index].conteudo = conteudo;
+            }
+            mostrarToast('Capítulo atualizado! Já disponível para alunos.', 'success');
+        } else {
+            // Novo capítulo
+            const novoId = modulos.length + customCapitulos.length + 1;
+            customCapitulos.push({
+                id: novoId,
+                nome: nome,
+                descricao: descricao,
+                conteudo: conteudo,
+                criadoEm: new Date().toISOString()
+            });
+            mostrarToast(`Capítulo ${novoId} adicionado ao vivo! Alunos já podem acessar.`, 'success');
+        }
+        
+        saveCapitulosCustom(customCapitulos);
+        carregarCapitulosAdmin();
+        carregarModulos();
+        atualizarProgresso();
+        fecharModalCapitulo();
+    }
+
+    function excluirCapitulo(capId) {
+        if (confirm('Tem certeza que deseja excluir este capítulo? Esta ação é irreversível.')) {
+            const customCapitulos = loadCapitulosCustom();
+            const newList = customCapitulos.filter(c => c.id !== capId);
+            saveCapitulosCustom(newList);
+            carregarCapitulosAdmin();
+            carregarModulos();
+            atualizarProgresso();
+            mostrarToast('Capítulo excluído!', 'success');
+        }
+    }
+
     // ========== NAVEGAÇÃO ==========
     function navigateTo(page) {
         const pages = ['home', 'curso', 'aula', 'editor', 'scripts', 'library', 'admin'];
@@ -1569,7 +1751,10 @@ end)`;
         document.getElementById('sidebar').classList.remove('open');
         
         if (page === 'scripts') carregarScriptsUsuario();
-        if (page === 'admin' && (currentUser?.isAdmin || currentUser?.username === 'admin')) carregarAdminUsers();
+        if (page === 'admin' && (currentUser?.isAdmin || currentUser?.username === 'ADMLINDO')) {
+            carregarAdminUsers();
+            carregarCapitulosAdmin();
+        }
         if (page === 'curso') carregarModulos();
     }
 
